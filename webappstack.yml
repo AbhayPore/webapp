@@ -1,0 +1,228 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Cloudformation Template for Deploying Web Application
+
+Parameters:
+  VPCCIDR:
+    Description: Enter CIDR Block for VPC
+    Type: String
+    Default: 10.0.0.0/16
+
+  PublicSubnetAZ1CIDR:
+    Description: Enter CIDR Block for Subnet in AZ 1
+    Type: String
+    Default: 10.0.10.0/24
+
+  PublicSubnetAZ2CIDR:
+    Description: Enter CIDR Block for Subnet in AZ 2
+    Type: String
+    Default: 10.0.20.0/24
+
+  PublicSubnetAZ3CIDR:
+    Description: Enter CIDR Block for Subnet in AZ 3
+    Type: String
+    Default: 10.0.30.0/24
+
+  AMIId:
+    Description: Enter AMI Id
+    Type: String
+    Default: ami-066784287e358dad1
+    
+  KeyPair:
+    Description: Enter Keypair Name
+    Type: String
+    Default: cfdemo
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VPCCIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+       - Key: Name
+         Value: web-app
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+       - Key: Name
+         Value: web-app
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
+
+  PublicSubnetAZ1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      CidrBlock: !Ref PublicSubnetAZ1CIDR
+      MapPublicIpOnLaunch: true
+      Tags:
+       - Key: Name
+         Value: web-app
+      
+  PublicSubnetAZ2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [ 1, !GetAZs '' ]
+      CidrBlock: !Ref PublicSubnetAZ2CIDR
+      MapPublicIpOnLaunch: true
+      Tags:
+       - Key: Name
+         Value: web-app
+
+  PublicSubnetAZ3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [ 2, !GetAZs '' ]
+      CidrBlock: !Ref PublicSubnetAZ3CIDR
+      MapPublicIpOnLaunch: true
+      Tags:
+       - Key: Name
+         Value: web-app
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+       - Key: Name
+         Value: web-app
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  
+  PublicSubnetAZ1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnetAZ1
+
+  PublicSubnetAZ2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnetAZ2
+
+  PublicSubnetAZ3RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnetAZ3
+
+  WebAppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: Web App
+      GroupDescription: Security Group for Web Application
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 80
+        ToPort: 80
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        CidrIp: 0.0.0.0/0
+        Tags:
+         - Key: Name
+           Value: web-app
+           
+  WebAppLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: WebAppLaunchTemplate
+      LaunchTemplateData:
+        ImageId: !Ref AMIId
+        InstanceType: t2.micro
+        KeyName: !Ref KeyPair
+        NetworkInterfaces:
+          - DeviceIndex: 0
+            AssociatePublicIpAddress: true
+            Groups:
+              - !GetAtt WebAppSecurityGroup.Id
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            sudo yum update -y
+            sudo yum install -y httpd
+            sudo systemctl start httpd
+            sudo systemctl enable httpd
+            sudo echo "Web Application is up & running!!!" > /var/www/html/index.html
+
+  ALBTargetGroups:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VPC
+      TargetType: instance
+      HealthCheckPath: /index.html
+      Port: 80
+      Protocol: HTTP
+      Tags:
+       - Key: Name
+         Value: web-app
+
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      MinSize: '1'
+      MaxSize: '2'
+      DesiredCapacity: '1'
+      LaunchTemplate:
+        LaunchTemplateId: !Ref WebAppLaunchTemplate
+        Version: !GetAtt WebAppLaunchTemplate.LatestVersionNumber
+      VPCZoneIdentifier:
+        - !Ref PublicSubnetAZ1
+        - !Ref PublicSubnetAZ2
+        - !Ref PublicSubnetAZ3
+      TargetGroupARNs:
+      - !Ref ALBTargetGroups
+
+  CpuUsage:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        TargetValue: 50
+
+  WebAppELB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Type: application
+      Scheme: internet-facing
+      SecurityGroups:
+      - !GetAtt WebAppSecurityGroup.Id
+      Subnets:
+      - !Ref PublicSubnetAZ1
+      - !Ref PublicSubnetAZ2
+      - !Ref PublicSubnetAZ3      
+      Tags:
+       - Key: Name
+         Value: web-app
+
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      Protocol: HTTP
+      Port: 80
+      DefaultActions:
+        - Type: forward
+          TargetGroupARN: !Ref ALBTargetGroups
+      LoadBalancerArn: !Ref WebAppELB
