@@ -139,12 +139,12 @@ Resources:
       - IpProtocol: tcp
         FromPort: 80
         ToPort: 80
-        CidrIp: 0.0.0.0/0
+        CidrIp: 0.0.0.0/0 # Currently exposing to internet for testing purpose
 
   WebAppEc2SecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupName: SB for EC2
+      GroupName: SG for EC2
       GroupDescription: Security Group for Web Application for EC2
       VpcId: !Ref VPC
       SecurityGroupIngress:
