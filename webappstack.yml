@@ -129,21 +129,29 @@ Resources:
       RouteTableId: !Ref PublicRouteTable
       SubnetId: !Ref PublicSubnetAZ3
 
-  WebAppSecurityGroup:
+  WebAppALBSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupName: Web App
-      GroupDescription: Security Group for Web Application
+      GroupName: SG for ALB
+      GroupDescription: Security Group for Web Application for ALB
       VpcId: !Ref VPC
       SecurityGroupIngress:
       - IpProtocol: tcp
         FromPort: 80
         ToPort: 80
         CidrIp: 0.0.0.0/0
+
+  WebAppEc2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: SB for EC2
+      GroupDescription: Security Group for Web Application for EC2
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
       - IpProtocol: tcp
-        FromPort: 22
-        ToPort: 22
-        CidrIp: 0.0.0.0/0
+        FromPort: 80
+        ToPort: 80
+        SourceSecurityGroupId: !GetAtt WebAppALBSecurityGroup.Id
            
   WebAppLaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
@@ -160,7 +168,7 @@ Resources:
           - DeviceIndex: 0
             AssociatePublicIpAddress: true
             Groups:
-              - !GetAtt WebAppSecurityGroup.Id
+              - !GetAtt WebAppEc2SecurityGroup.Id
         UserData:
           Fn::Base64: !Sub |
             #!/bin/bash
@@ -214,7 +222,7 @@ Resources:
       Type: application
       Scheme: internet-facing
       SecurityGroups:
-      - !GetAtt WebAppSecurityGroup.Id
+      - !GetAtt WebAppALBSecurityGroup.Id
       Subnets:
       - !Ref PublicSubnetAZ1
       - !Ref PublicSubnetAZ2
